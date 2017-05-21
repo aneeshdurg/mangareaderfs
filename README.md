@@ -1,5 +1,5 @@
 # mangareaderfs
-a file system interface to mangareader.net
+A file system interface to mangareader.net, written using fusepy
 
 creating or deleting a new folder will repectively add/delete entries from the reading list
 
