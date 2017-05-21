@@ -1,5 +1,5 @@
 from requests import get
-from re import match
+from re import match, split
 from sys import argv
 from bs4 import BeautifulSoup
 from io import BytesIO
@@ -20,11 +20,22 @@ def getChapters(title):
     req = get(url)
     soup = BeautifulSoup(req.text, 'html.parser')
     links = soup.find_all('div', {"class":"manga_name"})
-    links = list(map(lambda x: x.find('a'), links))
-    names = list(map(lambda x: x.get_text().lower().replace(" ", "").split(","), links))
+    links = list(map(lambda x: x.find('a').get('href'), links))
+    souplinks = list(map(lambda x: BeautifulSoup(get("http://www.mangareader.net"+x).text, 'html.parser'), links))
+    souplinks = list(map(lambda x: x.find_all('td'), souplinks))
+    
+    names = []
+    for i in range(len(souplinks)):
+      j = 0
+      for j in range(len(souplinks[j])):
+        if souplinks[i][j].get_text() == "Alternate Name:":
+          j+=1
+          break
+      names.append(split(',|;', souplinks[i][j].get_text().lower().replace(" ", "")))
+
     for i in range(len(names)):
       if title.replace(" ", "") in names[i]:
-        alt_title[title] = links[i].get('href')[1:].replace("-", " ")
+        alt_title[title] = links[i][1:].replace("-", " ")
         title = alt_title[title]
         manga_name = "-".join(title.lower().split(" "))
         url = "http://www.mangareader.net/"+manga_name
