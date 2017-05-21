@@ -296,9 +296,11 @@ def sig_handler(signal, frame):
 if __name__ == '__main__':
     signal(SIGINT, sig_handler)
     if(len(argv)<2):
-        print("Usage: \n\tpython3 mangareaderFS.py [mountpoint] [readinglist] (numThreads)\n\t\
-         where numThreads is optional and defaults to 20\n\t\
-         and readinglist is a file containing the manga you want to read (this can be updated by creating/deleting files)")
+        print("Usage: \n\tpython3 mangareaderFS.py [mountpoint] [readinglist] (numThreads)\n\n\t\
+  where numThreads is optional and defaults to 20\n\t\
+  and readinglist is a file containing the manga you want to read\n\t\
+   (this can also be updated by creating/deleting files)")
+        exit(1)
     if(len(argv)>3):
         numThreads = int(argv[3])
     main(argv[1], argv[2])
