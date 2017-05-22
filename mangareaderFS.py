@@ -286,7 +286,7 @@ def cleanCache(fs, cv):
                 del fs.filecache[n][c]
             if len(fs.filecache[n].keys()) == 0:
                 print("Deleting", n)
-                names.append(n)
+                oldNames.append(n)
         for n in oldNames:
             del fs.filecache[n]
         cv.notifyAll()
