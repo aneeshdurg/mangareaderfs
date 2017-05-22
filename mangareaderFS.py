@@ -59,12 +59,23 @@ class MangaReaderFS(Operations):
             if re.match("[0-9]+", chapter) and name in self.reading_list:
 
                 pages = list(map(lambda x: str(x+1), range(getPages(name,
-                    chapter))))
+                    chapter))))[:-1]
+
                 for i in range(len(pages)):
                     while len(pages[i])<3:
                         pages[i] = '0' + pages[i]
 
-                return ['.', '..'] + pages
+                if len(pages) < 20:
+                    return ['.', '..'] + pages
+                else:
+                    loadedPages = pages[:20]
+                    for i in range(20, len(pages)):
+                        if name in self.filecache and\
+                           chapter in self.filecache[name] and\
+                           pages[i] in self.filecache[name][chapter]:
+                            loadedPages.append(pages[i])
+                    return ['.', '..'] + pages
+
             else:
                 raise FuseOSError(ENOENT)
 
@@ -78,7 +89,7 @@ class MangaReaderFS(Operations):
         self.cv.release()
 
         pages = list(map(lambda x: str(x+1), range(getPages(name,
-            chapter))))
+            chapter))))[:-1]
         for i in range(len(pages)):
             while len(pages[i])<3:
                 pages[i] = '0' + pages[i]
@@ -91,11 +102,6 @@ class MangaReaderFS(Operations):
           with open(self.rfile, 'w') as f:
               f.write("\n".join(self.reading_list))
           return 0
-
-    def unlink(self, path):
-        print("Unlinking", path)
-        print(fuse_get_context())
-        return 0
 
     def rmdir(self, path):
         if '/' not in path[1:]:
@@ -127,7 +133,18 @@ class MangaReaderFS(Operations):
 
     def open(self, path, flags):
         parts = path.split('/')
+        page = parts[-1]
+        chapter = parts[-2]
+        name = parts[-3] 
+
+        self.cv.acquire()
+        if not name in self.filecache or\
+           not chapter in self.filecache[name]:
+               self.loadCache(name, chapter)
+        self.cv.release()
+
         print("opening "+path)
+
         self.fd += 1
         return self.fd
 
@@ -140,10 +157,7 @@ class MangaReaderFS(Operations):
         if re.match("[0-9]+", page) and re.match("[0-9]+", chapter)\
             and name in self.reading_list:
                 self.cv.acquire()
-                if not name in self.filecache or\
-                   not chapter in self.filecache[name]:
-                       self.loadCache(name, chapter)
-
+                
                 flag = 0
                 while name not in self.filecache or \
                       chapter not in self.filecache[name] or\
@@ -160,16 +174,14 @@ class MangaReaderFS(Operations):
                 if flag:
                     f = getImage(name, chapter, page)
                 else:
-                    f = self.filecache[name][chapter][page]
+                    f = self.filecache[name][chapter][page][0]
                     self.filecache[name][chapter]['timestamp'] = time()
                 self.cv.release()
 
                 return f[offset:offset+size]
 
-        print("reading "+path+" "+str(size)+" "+str(offset))
-        ret = os.read(os.open('temp.txt', os.O_RDONLY), size)
-        print(ret)
-        return ret
+        raise FuseOSError(ENOENT)
+
     def getattr(self, path, fh):
         parts = path.split('/')
 
@@ -189,11 +201,23 @@ class MangaReaderFS(Operations):
             and parts[-3] in self.reading_list:
                 name = parts[-3]
                 chapter = parts[-2]
+                page = parts[-1]
+                size = 4096
+                t = 0
+
+                self.cv.acquire()
+                if name in self.filecache and\
+                   chapter in self.filecache[name] and\
+                   page in self.filecache[name][chapter]:
+                   size = len(self.filecache[name][chapter][page][0])
+                   t = self.filecache[name][chapter][page][1]
+                   #print("size of", path, "is", size, type(self.filecache[name][chapter][page]))
+                self.cv.release()
 
                 return dict(st_mode=(S_IFREG), st_nlink=1,
-                       st_size=1000000000,
-                       st_ctime=time(),
-                       st_mtime=time(),
+                       st_size=size,
+                       st_ctime=t,
+                       st_mtime=t,
                        st_atime=time())
         
         st = os.lstat(path)
@@ -241,7 +265,7 @@ def worker(tasks, cv, fs):
            cv.release()
            tasks.task_done()
            continue
-        fs.filecache[name][chapter][page] = img
+        fs.filecache[name][chapter][page] = (img, time())
         tasks.task_done()
         print("Got the file!", path)
         cv.notifyAll()
@@ -251,14 +275,20 @@ def cleanCache(fs, cv):
     while 1:
         sleep(300)
         cv.acquire()
+        oldNames = []
         for n in fs.filecache:
+            oldChapters = []
             for c in fs.filecache[n]:
                 if time() - fs.filecache[n][c]['timestamp'] > 300:
                     print("Deleting chapter", c, "of", n)
-                    del fs.filecache[n][c]
+                    oldChapters.append(c)
+            for c in oldChapters:
+                del fs.filecache[n][c]
             if len(fs.filecache[n].keys()) == 0:
                 print("Deleting", n)
-                del fs.filecache[n]
+                names.append(n)
+        for n in oldNames:
+            del fs.filecache[n]
         cv.notifyAll()
         cv.release()
 
