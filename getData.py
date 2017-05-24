@@ -21,7 +21,7 @@ def getChapters(title):
     soup = BeautifulSoup(req.text, 'html.parser')
     links = soup.find_all('div', {"class":"manga_name"})
     links = list(map(lambda x: x.find('a').get('href'), links))
-    souplinks = list(map(lambda x: BeautifulSoup(get("http://www.mangareader.net"+x).text, 'html.parser'), links))
+    souplinks = map(lambda x: BeautifulSoup(get("http://www.mangareader.net"+x).text, 'html.parser'), links)
     souplinks = list(map(lambda x: x.find_all('td'), souplinks))
     
     names = []
@@ -45,25 +45,13 @@ def getChapters(title):
     return []      
 
   soup = BeautifulSoup(req.text, 'html.parser')
-  links = soup.find_all('a')
-  links = list(map(lambda x: x.get_text().lower(), links))
-  links = list(map(lambda x: "".join(filter(lambda y: y in alphanumeric, x)),
-      links))
-  links = list(filter(lambda x: match(title.lower()+" [0-9]+", x), links))
-
-  start = 0
-  last = -1
-  for l in links:
-      chapter = int(l.split(title)[1])
-      if last+1 == chapter:
-          start -= 1
-          break
-      else:
-          last = chapter
-          start += 1
+  chapterlist = soup.find_all(id='chapterlist')
+  if len(chapterlist)==0:
+    return []
+  chapterlist = chapterlist[0]
+  links = chapterlist.find_all('a')
+  links = list(map(lambda x: "http://www.mangareader.net/" + x.get('href'), links))
   
-  links = links[start:]
-  links = list(map(lambda x: url+"/"+str(x+1), range(len(links))))
   return links
 
 def getPages(title, chapter):

@@ -13,7 +13,7 @@ from threading import Thread, Condition
 from queue import Queue
 
 class MangaReaderFS(Operations):
-    def __init__(self, rfile, cv, tasks):
+    def __init__(self, rfile, cv, tasks, mnt):
         self.rfile = rfile
         reading_list = open(rfile, 'r')
         names = reading_list.readlines()
@@ -24,6 +24,7 @@ class MangaReaderFS(Operations):
         self.fd = 0
         self.cv = cv
         self.tasks = tasks
+        self.mnt = mnt
 
     def readdir(self, path, fh):
         if path == '/':
@@ -32,11 +33,13 @@ class MangaReaderFS(Operations):
             names = list(map(lambda x: x.replace("\n", ""), names))
             self.reading_list = names
             return ['.', '..'] + self.reading_list
+
         elif path[1:] in self.reading_list:
             _, _, pid = fuse_get_context()
             p = Popen(['ps', '-p', str(pid), '-o', 'comm='], stdout=PIPE)
             r = p.communicate()
             r = r[0].decode()
+
             if r == 'rm\n':
                 return ['.','..']
 
@@ -45,7 +48,7 @@ class MangaReaderFS(Operations):
             else:
                 chapters = list(map(lambda x: x.split('/')[-1],
                                       getChapters(path[1:])))
-                #print("chapters: ", chapters)
+                
                 for i in range(len(chapters)):
                     while len(chapters[i])<3:
                         chapters[i] = '0'+chapters[i]
@@ -74,6 +77,7 @@ class MangaReaderFS(Operations):
                            chapter in self.filecache[name] and\
                            pages[i] in self.filecache[name][chapter]:
                             loadedPages.append(pages[i])
+                    #TODO: make using loadedPages work with nautilus.
                     return ['.', '..'] + pages
 
             else:
@@ -147,6 +151,9 @@ class MangaReaderFS(Operations):
 
         self.fd += 1
         return self.fd
+
+    def create(self, path, fh):
+        return 0
 
     def read(self, path, size, offset, fh):
         parts = path.split('/')
@@ -265,6 +272,7 @@ def worker(tasks, cv, fs):
            cv.release()
            tasks.task_done()
            continue
+
         fs.filecache[name][chapter][page] = (img, time())
         tasks.task_done()
         print("Got the file!", path)
@@ -303,7 +311,7 @@ numThreads = 20
 def main(mountpoint, rfile):
     cv = Condition()
 
-    fs = MangaReaderFS(rfile, cv, tasks)
+    fs = MangaReaderFS(rfile, cv, tasks, mountpoint)
     
     for i in range(numThreads):
         t = Thread(target = worker, args=(tasks, cv, fs))
