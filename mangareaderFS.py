@@ -26,15 +26,31 @@ class MangaReaderFS(Operations):
         self.tasks = tasks
         self.mnt = mnt
 
+    @staticmethod
+    def _pad_items_to_max(items):
+        # A hacky way to approximate log base 10 without floats
+        # We add 1 to enforce a leading 0 to get proper sorting when
+        # listing the directory
+        max_strlen = len(str(len(items))) + 1
+
+        # Pad each page with leading 0s to have uniform length +
+        # sorting order
+        return list(map(lambda x: x.zfill(max_strlen), items))
+
+
     def readdir(self, path, fh):
         if path == '/':
             reading_list = open(self.rfile, 'r')
             names = reading_list.readlines()
-            names = list(map(lambda x: x.replace("\n", ""), names))
+            names = list(
+                filter(lambda x: len(x),
+                    map(lambda x: x.strip(), names)))
             self.reading_list = names
             return ['.', '..'] + self.reading_list
 
-        elif path[1:] in self.reading_list:
+        if '/' not in path[1:]:
+            name = path[1:]
+
             _, _, pid = fuse_get_context()
             p = Popen(['ps', '-p', str(pid), '-o', 'comm='], stdout=PIPE)
             r = p.communicate()
@@ -43,45 +59,41 @@ class MangaReaderFS(Operations):
             if r == 'rm\n':
                 return ['.','..']
 
-            if path[1:] in self.cache:
-                return ['.', '..'] + self.cache[path[1:]]
-            else:
+            if name not in self.cache:
                 chapters = list(map(lambda x: x.split('/')[-1],
-                                      getChapters(path[1:])))
+                                      getChapters(name)))
+                chapters = MangaReaderFS._pad_items_to_max(chapters)
+                self.cache[name] = chapters
+            return ['.', '..'] + self.cache[name]
 
-                for i in range(len(chapters)):
-                    while len(chapters[i])<3:
-                        chapters[i] = '0'+chapters[i]
-
-                self.cache[path[1:]] = chapters
-                return ['.', '..'] + chapters
         else:
             parts = path.split('/')
-            chapter = parts[-1]
             name = parts[-2]
-            if re.match("[0-9]+", chapter) and name in self.reading_list:
-
-                pages = list(map(lambda x: str(x+1), range(getPages(name,
-                    chapter))))
-
-                for i in range(len(pages)):
-                    while len(pages[i])<3:
-                        pages[i] = '0' + pages[i]
-
-                if len(pages) < 20:
-                    return ['.', '..'] + pages
-                else:
-                    loadedPages = pages[:20]
-                    for i in range(20, len(pages)):
-                        if name in self.filecache and\
-                           chapter in self.filecache[name] and\
-                           pages[i] in self.filecache[name][chapter]:
-                            loadedPages.append(pages[i])
-                    #TODO: make using loadedPages work with nautilus.
-                    return ['.', '..'] + pages
-
-            else:
+            chapter = parts[-1]
+            if not all(
+                    [re.match("[0-9]+", chapter), name in self.reading_list]):
                 raise FuseOSError(ENOENT)
+
+            pages = list(map(lambda x: str(x+1), range(getPages(name,
+                chapter))))
+            pages = MangaReaderFS._pad_items_to_max(pages)
+
+            if len(pages) < 20:
+                return ['.', '..'] + pages
+            else:
+                loadedPages = pages[:20]
+                for i in range(20, len(pages)):
+                    # Append all loaded pages to the loadedPages list
+                    try:
+                       if self.filecache[name][chapter][pages[i]]:
+                            loadedPages.append(pages[i])
+                    except KeyError:
+                        pass
+                # TODO: make using loadedPages work with nautilus.
+                # This entails somehow setting up inotify events from within
+                # FUSE. It might not be possible.
+                return ['.', '..'] + loadedPages
+
 
     def loadCache(self, name, chapter):
         self.cv.acquire()
@@ -94,10 +106,9 @@ class MangaReaderFS(Operations):
 
         pages = list(map(lambda x: str(x+1), range(getPages(name,
             chapter))))
-        for i in range(len(pages)):
-            while len(pages[i])<3:
-                pages[i] = '0' + pages[i]
-            self.tasks.put('/'.join([name, chapter, pages[i]]))
+        pages = MangaReaderFS._pad_items_to_max(pages)
+        for page in pages:
+            self.tasks.put('/'.join([name, chapter, page]))
 
     def mkdir(self, path, mode):
         if '/' not in path[1:]:
