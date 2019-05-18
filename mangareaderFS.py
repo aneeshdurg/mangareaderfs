@@ -1,4 +1,4 @@
-from getData import getChapters, getPages, getImage 
+from getData import getChapters, getPages, getImage
 
 from signal import signal, SIGINT
 from time import time, sleep
@@ -48,11 +48,11 @@ class MangaReaderFS(Operations):
             else:
                 chapters = list(map(lambda x: x.split('/')[-1],
                                       getChapters(path[1:])))
-                
+
                 for i in range(len(chapters)):
                     while len(chapters[i])<3:
                         chapters[i] = '0'+chapters[i]
-                
+
                 self.cache[path[1:]] = chapters
                 return ['.', '..'] + chapters
         else:
@@ -62,7 +62,7 @@ class MangaReaderFS(Operations):
             if re.match("[0-9]+", chapter) and name in self.reading_list:
 
                 pages = list(map(lambda x: str(x+1), range(getPages(name,
-                    chapter))))[:-1]
+                    chapter))))
 
                 for i in range(len(pages)):
                     while len(pages[i])<3:
@@ -93,7 +93,7 @@ class MangaReaderFS(Operations):
         self.cv.release()
 
         pages = list(map(lambda x: str(x+1), range(getPages(name,
-            chapter))))[:-1]
+            chapter))))
         for i in range(len(pages)):
             while len(pages[i])<3:
                 pages[i] = '0' + pages[i]
@@ -139,7 +139,7 @@ class MangaReaderFS(Operations):
         parts = path.split('/')
         page = parts[-1]
         chapter = parts[-2]
-        name = parts[-3] 
+        name = parts[-3]
 
         self.cv.acquire()
         if not name in self.filecache or\
@@ -159,24 +159,24 @@ class MangaReaderFS(Operations):
         parts = path.split('/')
         page = parts[-1]
         chapter = parts[-2]
-        name = parts[-3] 
+        name = parts[-3]
 
         if re.match("[0-9]+", page) and re.match("[0-9]+", chapter)\
             and name in self.reading_list:
                 self.cv.acquire()
-                
+
                 flag = 0
                 while name not in self.filecache or \
                       chapter not in self.filecache[name] or\
                       page not in self.filecache[name][chapter]:
-                    
+
                     if name not in self.filecache or\
                        chapter not in self.filecache[name]:
                               #todo figure out if this is still necessary
                               flag = 1
                               break
                     self.cv.wait()
-                
+
                 f = None
                 if flag:
                     f = getImage(name, chapter, page)
@@ -226,7 +226,7 @@ class MangaReaderFS(Operations):
                        st_ctime=t,
                        st_mtime=t,
                        st_atime=time())
-        
+
         st = os.lstat(path)
         return dict((key, getattr(st, key)) for key in ('st_atime',
                                                         'st_ctime',
@@ -240,7 +240,7 @@ class MangaReaderFS(Operations):
 def worker(tasks, cv, fs):
     while 1:
         path = tasks.get()
-        
+
         if path==None:
             print("Exiting")
             tasks.task_done()
@@ -312,7 +312,7 @@ def main(mountpoint, rfile):
     cv = Condition()
 
     fs = MangaReaderFS(rfile, cv, tasks, mountpoint)
-    
+
     for i in range(numThreads):
         t = Thread(target = worker, args=(tasks, cv, fs))
         workerThreads.append(t)
@@ -329,7 +329,7 @@ def sig_handler(signal, frame):
     tasks.join()
     for t in workerThreads:
       t.join()
-    exit(0)   
+    exit(0)
 
 if __name__ == '__main__':
     signal(SIGINT, sig_handler)

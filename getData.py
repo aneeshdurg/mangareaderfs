@@ -14,7 +14,7 @@ def getChapters(title):
   manga_name = "-".join(title.lower().split(" "))
   url = "http://www.mangareader.net/"+manga_name
   req = get(url)
-  
+
   if not req.ok and req.status_code==404:
     url = "http://www.mangareader.net/search/?w="+manga_name.replace('-', '+')
     req = get(url)
@@ -23,7 +23,7 @@ def getChapters(title):
     links = list(map(lambda x: x.find('a').get('href'), links))
     souplinks = map(lambda x: BeautifulSoup(get("http://www.mangareader.net"+x).text, 'html.parser'), links)
     souplinks = list(map(lambda x: x.find_all('td'), souplinks))
-    
+
     names = []
     for i in range(len(souplinks)):
       j = 0
@@ -42,7 +42,7 @@ def getChapters(title):
         req = get(url)
         break
   if not req.ok:
-    return []      
+    return []
 
   soup = BeautifulSoup(req.text, 'html.parser')
   chapterlist = soup.find_all(id='chapterlist')
@@ -51,7 +51,7 @@ def getChapters(title):
   chapterlist = chapterlist[0]
   links = chapterlist.find_all('a')
   links = list(map(lambda x: "http://www.mangareader.net/" + x.get('href'), links))
-  
+
   return links
 
 def getPages(title, chapter):
@@ -79,21 +79,22 @@ def getImage(title, chapter, page):
   if title in alt_title:
     title = alt_title[title]
 
+  _path = '/'.join([title, chapter, page])
   while chapter[0] == '0':
       chapter = chapter[1:]
   while page[0] == '0':
-      page = page[1:] 
+      page = page[1:]
   manga_name = "-".join(title.split(" "))
   url = "http://www.mangareader.net/"+manga_name+"/"+chapter+"/"+page
   req = get(url)
-  req = req.text.split("\n")
-  for r in req:
-      if "document['pu']" in r:
-          url = r.split("'")[3]
-          break
-  if url=="":
+  soup = BeautifulSoup(req.text, 'html.parser')
+  imgurl = ""
+  try:
+    imgurl = soup.find('div', {'id':'imgholder'}).find('img')['src']
+  except:
+    # TODO handle error
       return "NOT FOUND".encode()
-  req = get(url)
+  req = get(imgurl)
   return req.content
 
 if __name__ == '__main__':
