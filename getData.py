@@ -1,101 +1,166 @@
-from requests import get
-from re import match, split
-from sys import argv
+import re
+import string
+
 from bs4 import BeautifulSoup
 from io import BytesIO
+from requests import get
+from sys import argv
 
-alt_title = dict()
+validated_titles = dict()
 
-def getChapters(title):
-  alphanumeric = 'abcdefghijklmnopqrstuvwxyz 0123456789'
+base_url = "http://www.mangareader.net"
+search_url = "http://www.mangareader.net/search/?w="
+
+def _sanitize_title(title):
+  alphanumeric = string.ascii_lowercase + string.digits + ' '
   title = title.lower()
   title = "".join(filter(lambda x: x in alphanumeric, title))
+  return title
 
-  manga_name = "-".join(title.lower().split(" "))
-  url = "http://www.mangareader.net/"+manga_name
-  req = get(url)
+def _encode_name_for_url(name):
+  return name.replace(" ", "-")
 
-  if not req.ok and req.status_code==404:
-    url = "http://www.mangareader.net/search/?w="+manga_name.replace('-', '+')
+def _encode_url_name_for_search(name):
+  return name.replace("-", "+")
+
+def _get_alternate_names_for_link(link):
+     req = get(f"{base_url}/{link}")
+     if not req.ok:
+         return None
+
+     soup = BeautifulSoup(req.text, 'html.parser')
+     text_blocks = list(map(lambda e: e.get_text(), soup.find_all('td')))
+     try:
+         altnames = text_blocks[text_blocks.index('Alternate Name:') + 1]
+         altnames = re.split(',|;', altnames.lower().replace(" ", ""))
+         return altnames
+     except:
+         return None
+
+def _search_for_url_name(manga_name):
+    url = search_url + _encode_url_name_for_search(manga_name)
     req = get(url)
+    if not req.ok:
+        return None
+
     soup = BeautifulSoup(req.text, 'html.parser')
     links = soup.find_all('div', {"class":"manga_name"})
-    links = list(map(lambda x: x.find('a').get('href'), links))
-    souplinks = map(lambda x: BeautifulSoup(get("http://www.mangareader.net"+x).text, 'html.parser'), links)
-    souplinks = list(map(lambda x: x.find_all('td'), souplinks))
+    if not links:
+        return None
 
-    names = []
-    for i in range(len(souplinks)):
-      j = 0
-      for j in range(len(souplinks[j])):
-        if souplinks[i][j].get_text() == "Alternate Name:":
-          j+=1
-          break
-      names.append(split(',|;', souplinks[i][j].get_text().lower().replace(" ", "")))
+    # try/except in case find fails
+    try:
+        links = map(lambda x: x.find('a').get('href'), links)
+    except:
+        return None
 
-    for i in range(len(names)):
-      if title.replace(" ", "") in names[i]:
-        alt_title[title] = links[i][1:].replace("-", " ")
-        title = alt_title[title]
-        manga_name = "-".join(title.lower().split(" "))
-        url = "http://www.mangareader.net/"+manga_name
-        req = get(url)
-        break
-  if not req.ok:
-    return []
+    links = map(lambda x: x.replace('/', ''), links)
+    return links
 
-  soup = BeautifulSoup(req.text, 'html.parser')
-  chapterlist = soup.find_all(id='chapterlist')
-  if len(chapterlist)==0:
-    return []
-  chapterlist = chapterlist[0]
-  links = chapterlist.find_all('a')
-  links = list(map(lambda x: "http://www.mangareader.net/" + x.get('href'), links))
+def _validate_title(title):
+    title = _sanitize_title(title)
+    if title in validated_titles:
+        return validated_titles[title]
 
-  return links
+    manga_name = _encode_name_for_url(title)
+    url = f"{base_url}/{manga_name}"
+    req = get(url)
+    if req.ok:
+        validated_titles[title] = manga_name
+        return manga_name
+
+    if not req.status_code == 404:
+        return None
+
+    links = _search_for_url_name(manga_name)
+    if not links:
+      return None
+
+    # Cast to list because we'll need to iterate multiple times
+    links = list(links)
+
+     # For each link for all alternate names that links go by so that we can
+     # verify that our match isn't just a similar name, but an alternate title
+     # of the requested title
+    altnames = list(zip(links, map(_get_alternate_names_for_link, links)))
+    print(altnames)
+
+    # Account for wonky spacing which mangareader adds sometimes
+    # We do this down in the loop with altnames as well
+    title_clean = title.replace(" ", "")
+    for (link, alts)  in altnames:
+        alts = map(lambda x: x.replace(" ", ""), alts)
+        if title_clean in alts:
+            # Don't store the leading /
+            validated_titles[title] = link.replace('/', '')
+            return validated_titles[title]
+
+    return None
+
+def _remove_leading_zeros(text):
+    return re.match('0*(\d*)', text).group(1)
+
+def getChapters(title):
+    title = _validate_title(title)
+    if not title:
+        return []
+
+    manga_name = _encode_name_for_url(title)
+    url = f"{base_url}/{manga_name}"
+    req = get(url)
+    if not req.ok:
+        return []
+
+    soup = BeautifulSoup(req.text, 'html.parser')
+    chapterlist = soup.find_all(id='chapterlist')
+    if not chapterlist:
+        return []
+
+    links = chapterlist[0].find_all('a')
+    links = list(map(lambda x: f"{base_url}/{x.get('href')}", links))
+
+    return links
 
 def getPages(title, chapter):
-  alphanumeric = 'abcdefghijklmnopqrstuvwxyz 0123456789'
-  title = title.lower()
-  title = "".join(filter(lambda x: x in alphanumeric, title))
+    title = _validate_title(title)
+    if not title:
+      return 0
 
-  if title in alt_title:
-    title = alt_title[title]
+    chapter = _remove_leading_zeros(chapter)
+    manga_name = _encode_name_for_url(title)
+    url = f"{base_url}/{manga_name}/{chapter}"
+    req = get(url)
+    if not req.ok:
+        return 0
 
-  while chapter[0] == '0':
-      chapter = chapter[1:]
-  manga_name = "-".join(title.split(" "))
-  url = "http://www.mangareader.net/"+manga_name+"/"+chapter
-  req = get(url)
-  soup = BeautifulSoup(req.text, 'html.parser')
-  menu = soup.find_all('option')
-  return len(menu)
+    soup = BeautifulSoup(req.text, 'html.parser')
+    # This is the drop down menu that lets you select pages
+    # Every option in this menu is a page
+    menu = soup.find_all('option')
+    return len(menu)
 
 def getImage(title, chapter, page):
-  alphanumeric = 'abcdefghijklmnopqrstuvwxyz 0123456789'
-  title = title.lower()
-  title = "".join(filter(lambda x: x in alphanumeric, title))
+    title = _validate_title(title)
+    if title is None:
+        return None
 
-  if title in alt_title:
-    title = alt_title[title]
+    chapter = _remove_leading_zeros(chapter)
+    page = _remove_leading_zeros(page)
+    manga_name = _encode_name_for_url(title)
 
-  _path = '/'.join([title, chapter, page])
-  while chapter[0] == '0':
-      chapter = chapter[1:]
-  while page[0] == '0':
-      page = page[1:]
-  manga_name = "-".join(title.split(" "))
-  url = "http://www.mangareader.net/"+manga_name+"/"+chapter+"/"+page
-  req = get(url)
-  soup = BeautifulSoup(req.text, 'html.parser')
-  imgurl = ""
-  try:
-    imgurl = soup.find('div', {'id':'imgholder'}).find('img')['src']
-  except:
-    # TODO handle error
-      return "NOT FOUND".encode()
-  req = get(imgurl)
-  return req.content
+    url = f"{base_url}/{manga_name}/{chapter}/{page}"
+    req = get(url)
+    soup = BeautifulSoup(req.text, 'html.parser')
+    imgurl = ""
+    try:
+        imgurl = soup.find('div', {'id':'imgholder'}).find('img')['src']
+    except:
+        return None
+
+    req = get(imgurl)
+    if not req.ok:
+        return None
+    return req.content
 
 if __name__ == '__main__':
   if len(argv)<2:
