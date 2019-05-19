@@ -291,23 +291,28 @@ def worker(tasks, cv, fs):
         cv.release()
 
 def cleanCache(fs, cv):
-    while 1:
-        sleep(300)
+    timeout = 300
+    while True:
+        sleep(timeout)
         cv.acquire()
         oldNames = []
         for n in fs.filecache:
             oldChapters = []
             for c in fs.filecache[n]:
-                if time() - fs.filecache[n][c]['timestamp'] > 300:
-                    print("Deleting chapter", c, "of", n)
+                if time() - fs.filecache[n][c]['timestamp'] > timeout:
                     oldChapters.append(c)
+
             for c in oldChapters:
+                print("Deleting chapter", c, "of", n)
                 del fs.filecache[n][c]
-            if len(fs.filecache[n].keys()) == 0:
-                print("Deleting", n)
+
+            if not len(fs.filecache[n].keys()):
                 oldNames.append(n)
+
         for n in oldNames:
+            print("Deleting", n)
             del fs.filecache[n]
+
         cv.notifyAll()
         cv.release()
 
@@ -325,7 +330,7 @@ def main(mountpoint, rfile):
     fs = MangaReaderFS(rfile, cv, tasks, mountpoint)
 
     for i in range(numThreads):
-        t = Thread(target = worker, args=(tasks, cv, fs))
+        t = Thread(target=worker, args=(tasks, cv, fs))
         workerThreads.append(t)
         t.start()
 
