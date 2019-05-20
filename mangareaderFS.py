@@ -1,16 +1,17 @@
-from getData import getChapters, getPages, getImage
-
-from signal import signal, SIGINT
-from time import time, sleep
-from sys import argv, exit
-from stat import S_IFDIR, S_IFLNK, S_IFREG
-from fuse import FUSE, FuseOSError, Operations, fuse_get_context
-from subprocess import Popen, PIPE
 import re
 import os
+
 from errno import ENOENT
-from threading import Thread, Condition
+from fuse import FUSE, FuseOSError, Operations, fuse_get_context
 from queue import Queue
+from signal import signal, SIGINT
+from stat import S_IFDIR, S_IFLNK, S_IFREG
+from subprocess import Popen, PIPE
+from sys import argv, exit
+from threading import Thread, Condition
+from time import time, sleep
+
+from getData import getChapters, getPages, getImage
 
 class MangaReaderFS(Operations):
     def __init__(self, rfile, cv, tasks, mnt):
@@ -39,6 +40,7 @@ class MangaReaderFS(Operations):
 
 
     def readdir(self, path, fh):
+        defaults = ['.', '..']
         if path == '/':
             reading_list = open(self.rfile, 'r')
             names = reading_list.readlines()
@@ -46,25 +48,21 @@ class MangaReaderFS(Operations):
                 filter(lambda x: len(x),
                     map(lambda x: x.strip(), names)))
             self.reading_list = names
-            return ['.', '..'] + self.reading_list
+            return defaults + self.reading_list
 
         if '/' not in path[1:]:
             name = path[1:]
 
-            _, _, pid = fuse_get_context()
-            p = Popen(['ps', '-p', str(pid), '-o', 'comm='], stdout=PIPE)
-            r = p.communicate()
-            r = r[0].decode()
-
-            if r == 'rm\n':
-                return ['.','..']
-
-            if name not in self.cache:
+            try:
+                return defaults + self.cache[name]['chapters']
+            except KeyError:
+                if name not in self.cache:
+                  self.cache[name] = dict()
                 chapters = list(map(lambda x: x.split('/')[-1],
                                       getChapters(name)))
                 chapters = MangaReaderFS._pad_items_to_max(chapters)
-                self.cache[name] = chapters
-            return ['.', '..'] + self.cache[name]
+                self.cache[name]['chapters'] = chapters
+                return defaults + self.cache[name]['chapters']
 
         else:
             parts = path.split('/')
@@ -74,25 +72,24 @@ class MangaReaderFS(Operations):
                     [re.match("[0-9]+", chapter), name in self.reading_list]):
                 raise FuseOSError(ENOENT)
 
-            pages = list(map(lambda x: str(x+1), range(getPages(name,
-                chapter))))
-            pages = MangaReaderFS._pad_items_to_max(pages)
+            def get_pages_from_cache(name, chapter):
+                page_count = self.cache[name]['pages'][int(chapter)]
+                pages = list(map(str, range(1, 1 + page_count)))
+                pages = MangaReaderFS._pad_items_to_max(pages)
+                return pages
 
-            if len(pages) < 20:
-                return ['.', '..'] + pages
-            else:
-                loadedPages = pages[:20]
-                for i in range(20, len(pages)):
-                    # Append all loaded pages to the loadedPages list
-                    try:
-                       if self.filecache[name][chapter][pages[i]]:
-                            loadedPages.append(pages[i])
-                    except KeyError:
-                        pass
-                # TODO: make using loadedPages work with nautilus.
-                # This entails somehow setting up inotify events from within
-                # FUSE. It might not be possible.
-                return ['.', '..'] + loadedPages
+            try:
+                return defaults + get_pages_from_cache(name, chapter)
+            except KeyError:
+                page_count = getPages(name, chapter)
+                if name not in self.cache:
+                    self.cache[name] = dict()
+
+                if 'pages' not in self.cache[name]:
+                    self.cache[name]['pages'] = dict()
+
+                self.cache[name]['pages'][int(chapter)] = page_count
+                return defaults + get_pages_from_cache(name, chapter)
 
 
     def loadCache(self, name, chapter):
@@ -104,9 +101,9 @@ class MangaReaderFS(Operations):
             self.filecache[name][chapter]['timestamp'] = time()
         self.cv.release()
 
-        pages = list(map(lambda x: str(x+1), range(getPages(name,
-            chapter))))
+        pages = list(map(str, range(1, 1 + getPages(name, chapter))))
         pages = MangaReaderFS._pad_items_to_max(pages)
+
         for page in pages:
             self.tasks.put('/'.join([name, chapter, page]))
 
@@ -124,6 +121,10 @@ class MangaReaderFS(Operations):
             self.reading_list.remove(path[1:])
             with open(self.rfile, 'w') as f:
                 f.write("\n".join(self.reading_list))
+            try:
+                del self.cache[name]
+            except:
+                pass
         return 0
 
     def rename(self, old, new):
