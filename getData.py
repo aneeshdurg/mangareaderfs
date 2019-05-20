@@ -1,6 +1,9 @@
+#!/usr/bin/python3
+
+import argparse
+import logging
 import re
 import string
-import logging
 
 from bs4 import BeautifulSoup
 from io import BytesIO
@@ -171,19 +174,60 @@ def getImage(title, chapter, page):
     return req.content
 
 if __name__ == '__main__':
-  if len(argv)<2:
-    print("Please provide a manga name")
-  else:
-    if len(argv)==2:
-      title = argv[1]
-      print(getChapters(title))
-    elif len(argv)==3:
-      title = argv[1]
-      chapter = argv[2]
-      print(getPages(title, chapter))
+    parser = argparse.ArgumentParser(description="mangareader.net cli")
+    parser.add_argument('name', action='store', type=str)
+    parser.add_argument(
+        '--chapter',
+        help='see all pages for a chapter',
+        action='store',
+        type=int)
+    parser.add_argument(
+        '--page',
+        help='(requires chatper) dump image for a given chapter and page to stdout',
+        action='store',
+        type=int)
+
+    parser.add_argument(
+        '--output',
+        help='(requires page) dump image for a given chapter and page to output',
+        action='store',
+        type=str)
+
+    arguments = parser.parse_args(argv[1:])
+    if arguments.page is not None and arguments.chapter is None:
+        raise Exception("Cannot specify page without chapter")
+
+    if arguments.page is not None:
+        arguments.page = str(arguments.page)
+    if arguments.chapter is not None:
+        arguments.chapter = str(arguments.chapter)
+
+    if arguments.page is not None:
+        image = getImage(arguments.name, arguments.chapter, arguments.page)
+        if arguments.output is not None:
+            with open(arguments.output, 'wb') as f:
+                f.write(image)
+        else:
+            print(image)
+    elif arguments.chapter is not None:
+        print("Chapter {} of {} has {} pages".format(
+          arguments.chapter,
+          arguments.name,
+          getPages(arguments.name, arguments.chapter)))
     else:
-      title = argv[1]
-      chapter = argv[2]
-      page = argv[3]
-      print(getImage(title, chapter, page))
+        print('\n'.join(getChapters(arguments.name)))
+
+  #else:
+  #  if len(argv)==2:
+  #    title = argv[1]
+  #    print(getChapters(title))
+  #  elif len(argv)==3:
+  #    title = argv[1]
+  #    chapter = argv[2]
+  #    print(getPages(title, chapter))
+  #  else:
+  #    title = argv[1]
+  #    chapter = argv[2]
+  #    page = argv[3]
+  #    print(getImage(title, chapter, page))
 
