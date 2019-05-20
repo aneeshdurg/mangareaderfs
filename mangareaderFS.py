@@ -155,8 +155,8 @@ class MangaReaderFS(Operations):
 
         self.cv.acquire()
         if not name in self.filecache or\
-           not chapter in self.filecache[name]:
-               self.loadCache(name, chapter)
+                not chapter in self.filecache[name]:
+            self.loadCache(name, chapter)
         self.cv.release()
 
         print("opening "+path)
@@ -240,14 +240,17 @@ class MangaReaderFS(Operations):
                        st_atime=time())
 
         st = os.lstat(path)
-        return dict((key, getattr(st, key)) for key in ('st_atime',
-                                                        'st_ctime',
-                                                        'st_gid',
-                                                        'st_mode',
-                                                        'st_mtime',
-                                                        'st_nlink',
-                                                        'st_size',
-                                                        'st_uid'))
+        attrs = [
+            'st_atime',
+            'st_ctime',
+            'st_gid',
+            'st_mode',
+            'st_mtime',
+            'st_nlink',
+            'st_size',
+            'st_uid',
+       ]
+        return dict((key, getattr(st, key)) for key in attrs)
 
 def worker(tasks, cv, fs):
     while 1:
@@ -317,10 +320,6 @@ def cleanCache(fs, cv):
         cv.notifyAll()
         cv.release()
 
-
-
-
-
 workerThreads = []
 tasks = Queue()
 numThreads = 20
@@ -351,11 +350,16 @@ def sig_handler(signal, frame):
 if __name__ == '__main__':
     signal(SIGINT, sig_handler)
     if(len(argv)<2):
-        print("Usage: \n\tpython3 mangareaderFS.py [mountpoint] [readinglist] (numThreads)\n\n\t\
-  where numThreads is optional and defaults to 20\n\t\
-  and readinglist is a file containing the manga you want to read\n\t\
-   (this can also be updated by creating/deleting files)")
+        print(
+            "Usage: \n"
+            "\tpython3 mangareaderFS.py [mountpoint] [readinglist] (numThreads)\n"
+            "\n"
+            "\twhere numThreads is optional and defaults to 20\n"
+            "\tand readinglist is a file containing the manga you want to read\n"
+            "\t(this can also be updated by creating/deleting files)")
         exit(1)
+
     if(len(argv)>3):
         numThreads = int(argv[3])
+
     main(argv[1], argv[2])
