@@ -1,5 +1,6 @@
 import re
 import string
+import logging
 
 from bs4 import BeautifulSoup
 from io import BytesIO
@@ -8,36 +9,41 @@ from sys import argv
 
 validated_titles = dict()
 
+# Urls to search/crawl with
 base_url = "http://www.mangareader.net"
 search_url = "http://www.mangareader.net/search/?w="
 
 def _sanitize_title(title):
-  alphanumeric = string.ascii_lowercase + string.digits + ' '
-  title = title.lower()
-  title = "".join(filter(lambda x: x in alphanumeric, title))
-  return title
+    """ Remove all non alphanumeric characters from title and lowercase """
+    alphanumeric = string.ascii_lowercase + string.digits + ' '
+    title = title.lower()
+    title = "".join(filter(lambda x: x in alphanumeric, title))
+    return title
 
 def _encode_name_for_url(name):
-  return name.replace(" ", "-")
+    return name.replace(" ", "-")
 
 def _encode_url_name_for_search(name):
-  return name.replace("-", "+")
+    return name.replace("-", "+")
 
 def _get_alternate_names_for_link(link):
-     req = get(f"{base_url}/{link}")
-     if not req.ok:
-         return None
+    """ For a given link get the alternate names list on the page
+    returns a list of names """
+    req = get(f"{base_url}/{link}")
+    if not req.ok:
+        return None
 
-     soup = BeautifulSoup(req.text, 'html.parser')
-     text_blocks = list(map(lambda e: e.get_text(), soup.find_all('td')))
-     try:
-         altnames = text_blocks[text_blocks.index('Alternate Name:') + 1]
-         altnames = re.split(',|;', altnames.lower().replace(" ", ""))
-         return altnames
-     except:
-         return None
+    soup = BeautifulSoup(req.text, 'html.parser')
+    text_blocks = list(map(lambda e: e.get_text(), soup.find_all('td')))
+    try:
+        altnames = text_blocks[text_blocks.index('Alternate Name:') + 1]
+        altnames = re.split(',|;', altnames.lower().replace(" ", ""))
+        return altnames
+    except:
+        return None
 
 def _search_for_url_name(manga_name):
+    """ Search for a name and return a list of all links found """
     url = search_url + _encode_url_name_for_search(manga_name)
     req = get(url)
     if not req.ok:
@@ -58,6 +64,8 @@ def _search_for_url_name(manga_name):
     return links
 
 def _validate_title(title):
+    """ Find the validated title either by confirming that the title exists or
+    by searching. Returns a url encoded string """
     title = _sanitize_title(title)
     if title in validated_titles:
         return validated_titles[title]
@@ -83,7 +91,7 @@ def _validate_title(title):
      # verify that our match isn't just a similar name, but an alternate title
      # of the requested title
     altnames = list(zip(links, map(_get_alternate_names_for_link, links)))
-    print(altnames)
+    logging.info(f"altnames: {altnames}")
 
     # Account for wonky spacing which mangareader adds sometimes
     # We do this down in the loop with altnames as well
@@ -117,7 +125,7 @@ def getChapters(title):
         return []
 
     links = chapterlist[0].find_all('a')
-    links = list(map(lambda x: f"{base_url}/{x.get('href')}", links))
+    links = list(map(lambda x: f"{base_url}{x.get('href')}", links))
 
     return links
 
