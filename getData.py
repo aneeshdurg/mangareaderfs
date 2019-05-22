@@ -3,14 +3,15 @@
 import argparse
 import logging
 import re
+import requests
 import string
 
 from bs4 import BeautifulSoup
 from io import BytesIO
-from requests import get
 from sys import argv
 
 validated_titles = dict()
+session = requests.session()
 
 # Urls to search/crawl with
 base_url = "http://www.mangareader.net"
@@ -32,7 +33,7 @@ def _encode_url_name_for_search(name):
 def _get_alternate_names_for_link(link):
     """ For a given link get the alternate names list on the page
     returns a list of names """
-    req = get(f"{base_url}/{link}")
+    req = session.get(f"{base_url}/{link}")
     if not req.ok:
         return None
 
@@ -48,7 +49,7 @@ def _get_alternate_names_for_link(link):
 def _search_for_url_name(manga_name):
     """ Search for a name and return a list of all links found """
     url = search_url + _encode_url_name_for_search(manga_name)
-    req = get(url)
+    req = session.get(url)
     if not req.ok:
         return None
 
@@ -75,7 +76,7 @@ def _validate_title(title):
 
     manga_name = _encode_name_for_url(title)
     url = f"{base_url}/{manga_name}"
-    req = get(url)
+    req = session.get(url)
     if req.ok:
         validated_titles[title] = manga_name
         return manga_name
@@ -118,7 +119,7 @@ def getChapters(title):
 
     manga_name = _encode_name_for_url(title)
     url = f"{base_url}/{manga_name}"
-    req = get(url)
+    req = session.get(url)
     if not req.ok:
         return []
 
@@ -140,7 +141,7 @@ def getPages(title, chapter):
     chapter = _remove_leading_zeros(chapter)
     manga_name = _encode_name_for_url(title)
     url = f"{base_url}/{manga_name}/{chapter}"
-    req = get(url)
+    req = session.get(url)
     if not req.ok:
         return 0
 
@@ -160,7 +161,7 @@ def getImage(title, chapter, page):
     manga_name = _encode_name_for_url(title)
 
     url = f"{base_url}/{manga_name}/{chapter}/{page}"
-    req = get(url)
+    req = session.get(url)
     soup = BeautifulSoup(req.text, 'html.parser')
     imgurl = ""
     try:
@@ -168,7 +169,7 @@ def getImage(title, chapter, page):
     except:
         return None
 
-    req = get(imgurl)
+    req = session.get(imgurl)
     if not req.ok:
         return None
     return req.content
@@ -216,18 +217,3 @@ if __name__ == '__main__':
           getPages(arguments.name, arguments.chapter)))
     else:
         print('\n'.join(getChapters(arguments.name)))
-
-  #else:
-  #  if len(argv)==2:
-  #    title = argv[1]
-  #    print(getChapters(title))
-  #  elif len(argv)==3:
-  #    title = argv[1]
-  #    chapter = argv[2]
-  #    print(getPages(title, chapter))
-  #  else:
-  #    title = argv[1]
-  #    chapter = argv[2]
-  #    page = argv[3]
-  #    print(getImage(title, chapter, page))
-
